@@ -1,9 +1,13 @@
 import json
 import os
 import sqlite3
+import boto3
+import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from random import randint
+import time
+
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -14,6 +18,17 @@ app.secret_key = "railconnect-demo-secret"
 BASE_DIR = Path(__file__).resolve().parent
 schema_path = BASE_DIR / "schema-postgres.sql"
 
+sns = boto3.client(
+    "sns",
+    region_name="ap-south-1"
+)
+TOPIC_ARN = "arn:aws:sns:ap-south-1:654884879903:ticket-topic"
+
+dynamodb = boto3.resource(
+    "dynamodb",
+    region_name="ap-south-1"
+)
+table = dynamodb.Table("seat_locks")
 
 TRAINS = [
     {
@@ -164,6 +179,46 @@ def waitlist_capacity_for_confirmed(confirmed):
     if confirmed <= 0:
         return 0
     return max(1, int((confirmed * 0.5) + 0.999999))
+
+def lock_seat(train_id, journey_date, class_key, seat, user_id):
+
+    seat_id = f"{train_id}#{journey_date}#{class_key}#{seat}"
+    expiry_time = int(time.time()) + 120
+
+    try:
+        response = table.put_item(
+            Item={  
+                "seat_id": seat_id,
+                "user_id": user_id,
+                "expiry_time": expiry_time
+            },
+            ConditionExpression="attribute_not_exists(seat_id)"
+        )
+
+        print("LOCK SUCCESS:", seat_id)
+        return True
+
+    except Exception as e:
+        print("LOCK FAILED:", seat_id, str(e))
+        return False
+    
+def lock_multiple_seats(train_id, journey_date, class_key, seats, user_id):
+
+    for seat in seats:
+        ok = lock_seat(train_id, journey_date, class_key, seat, user_id)
+        if not ok:
+            return False
+
+    return True
+
+def release_seats(train_id, journey_date, class_key, seats):
+
+    for seat in seats:
+        seat_id = f"{train_id}#{journey_date}#{class_key}#{seat}"
+
+        table.delete_item(
+            Key={"seat_id": seat_id}
+        )
 
 
 def is_postgres():
@@ -339,7 +394,6 @@ def ensure_schema_and_admin_seed(connection):
 
 def db():
     import psycopg2
-
     return psycopg2.connect(
         host="database-1.cluster-cvkcs4q28uf5.ap-south-1.rds.amazonaws.com",
         port=5432,
@@ -555,26 +609,29 @@ def index():
     if not user:
         return redirect(url_for("register"))
 
-    today = date.today().isoformat()
     connection = db()
-    inventory = {}
-    for t in TRAINS:
-        key = f"{t['id']}:{today}"
-        inv = availability_for_selection(connection, t["id"], today)
-        inventory[key] = inv
-    connection.close()
+    try:
+        today = date.today().isoformat()
+        inventory = {}
+        for t in TRAINS:
+            key = f"{t['id']}:{today}"
+            inv = availability_for_selection(connection, t["id"], today)
+            inventory[key] = inv
 
-    return render_template(
-        "index.html",
-        trains=TRAINS,
-        stations=STATIONS,
-        class_names=CLASS_NAMES,
-        today=today,
-        bookings=recent_bookings(user["id"] if user else None),
-        user=user,
-        display_trains=TRAINS,
-        inventory=inventory,
-    )
+        return render_template(
+            "index.html",
+            trains=TRAINS,
+            stations=STATIONS,
+            class_names=CLASS_NAMES,
+            today=today,
+            bookings=recent_bookings(user["id"] if user else None),
+            user=user,
+            display_trains=TRAINS,
+            inventory=inventory,
+        )
+    finally:
+        connection.close()
+
 
 
 @app.post("/search")
@@ -622,206 +679,102 @@ def search():
         inventory=inventory,
     )
 
-
 @app.route("/book/<train_id>/<class_key>", methods=["GET", "POST"])
 def book(train_id, class_key):
+
     user = current_user()
     if not user:
-        flash("Booking ke liye pehle login ya register karein.", "error")
-        return redirect(url_for("register"))
+        flash("Login required", "error")
+        return redirect(url_for("login"))
 
     train = find_train(train_id)
     if not train or class_key not in train["classes"]:
         return redirect(url_for("index"))
 
-    if request.method == "GET":
-        passengers = max(1, min(6, int(request.args.get("passengers", 1))))
-        fare = price_for(train, class_key, passengers)
-        return render_template(
-            "book.html",
-            train=train,
-            class_key=class_key,
-            class_name=CLASS_NAMES[class_key],
-            fare=fare,
-            passengers=passengers,
-            travel_date=request.args.get("date", date.today().isoformat()),
-            user=user,
-        )
+    journey_date = request.values.get("journey_date", date.today().isoformat())
 
-    # POST
-    try:
-        expected_passengers = int(request.form.get("passenger_count", request.form.get("passengers", "1")))
-    except ValueError:
-        expected_passengers = 1
-    expected_passengers = max(1, min(6, expected_passengers))
+    connection = db()
 
     try:
-        expected_passengers = int(
-            request.form.get(
-                "passengers_count_for_post",
-                request.form.get("passenger_count", expected_passengers),
-            )
-        )
-    except Exception:
-        expected_passengers = int(expected_passengers)
-    expected_passengers = max(1, min(6, expected_passengers))
+        # ---------------- GET ----------------
+        if request.method == "GET":
+            passengers = max(1, min(6, int(request.args.get("passengers", 1))))
+            fare = price_for(train, class_key, passengers)
 
-    names = [name.strip() for name in request.form.getlist("passenger_name") if name.strip()]
-    if not names:
-        names = [user["name"]]
-
-    if len(names) != expected_passengers:
-        if len(names) == 1 and expected_passengers > 1:
-            names = [names[0] for _ in range(expected_passengers)]
-        else:
-            flash(f"Please enter details for exactly {expected_passengers} passengers.", "error")
-            connection = db()
-            connection.close()
             return render_template(
                 "book.html",
                 train=train,
                 class_key=class_key,
                 class_name=CLASS_NAMES[class_key],
-                fare=price_for(train, class_key, expected_passengers),
-                passengers=expected_passengers,
-                travel_date=request.form.get("journey_date", date.today().isoformat()),
+                fare=fare,
+                passengers=passengers,
+                travel_date=journey_date,
                 user=user,
             )
 
-    passengers = expected_passengers
-    fare = price_for(train, class_key, passengers)
-    journey_date = request.form.get("journey_date", date.today().isoformat())
+        # ---------------- POST ----------------
+        names = [n.strip() for n in request.form.getlist("passenger_name") if n.strip()]
+        if not names:
+            names = [user["name"]]
 
-    connection = db()
+        passenger_count = len(names)
+        passenger_count = max(1, min(6, passenger_count))
 
-    # Ensure inventory row exists for this train/date/class
-    if is_postgres():
+        fare = price_for(train, class_key, passenger_count)
+
+        # ---------------- INVENTORY CHECK ----------------
         with connection.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO seat_inventory (train_id, journey_date, class_key, confirmed_remaining, waitlist_capacity, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (train_id, journey_date, class_key) DO NOTHING
-                """,
-                (
-                    train["id"],
-                    journey_date,
-                    class_key,
-                    train["classes"][class_key][1],
-                    waitlist_capacity_for_confirmed(train["classes"][class_key][1]),
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-            cur.execute(
-                """
-                SELECT confirmed_remaining, waitlist_capacity
+            cur.execute("""
+                SELECT confirmed_remaining
                 FROM seat_inventory
-                WHERE train_id = %s AND journey_date = %s AND class_key = %s
-                """,
-                (train["id"], journey_date, class_key),
-            )
+                WHERE train_id=%s AND journey_date=%s AND class_key=%s
+            """, (train_id, journey_date, class_key))
+
             row = cur.fetchone()
-            confirmed_remaining = int(row[0]) if row else 0
-            waitlist_capacity = int(row[1]) if row else 0
-    else:
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO seat_inventory
-            (train_id, journey_date, class_key, confirmed_remaining, waitlist_capacity, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                train["id"],
-                journey_date,
-                class_key,
-                train["classes"][class_key][1],
-                waitlist_capacity_for_confirmed(train["classes"][class_key][1]),
-                datetime.now().isoformat(timespec="seconds"),
-            ),
+            confirmed_remaining = row[0] if row else train["classes"][class_key][1]
+
+        # ---------------- SEATS + STATUS ----------------
+        if confirmed_remaining >= passenger_count:
+            status = "confirmed"
+            new_confirmed = confirmed_remaining - passenger_count
+            seats = [
+                f"{class_key}-{i}"
+                for i in range(1, passenger_count + 1)
+            ]
+        else:
+            status = "waitlisted"
+            new_confirmed = confirmed_remaining
+            seats = [f"WL-{i}" for i in range(1, passenger_count + 1)]
+            
+        
+        locked = lock_multiple_seats(
+            train["id"],
+            journey_date,
+            class_key,
+            seats,
+            user["id"]
         )
-        row = connection.execute(
-            """
-            SELECT confirmed_remaining, waitlist_capacity
-            FROM seat_inventory
-            WHERE train_id = ? AND journey_date = ? AND class_key = ?
-            """,
-            (train["id"], journey_date, class_key),
-        ).fetchone()
-        confirmed_remaining = int(row["confirmed_remaining"]) if row else 0
-        waitlist_capacity = int(row["waitlist_capacity"]) if row else 0
+        
 
-    pnr = "PNR" + str(randint(1000000000, 9999999999))
+        if not locked:
+            flash("Seat already booked by someone else!", "error")
+            return redirect(url_for("index"))
 
-    if confirmed_remaining >= passengers:
-        status = "confirmed"
-        new_confirmed_remaining = confirmed_remaining - passengers
-        seats = [f"{class_key}{1}-{i}" for i in range(confirmed_remaining - passengers + 1, confirmed_remaining + 1)]
-    else:
-        status = "waitlisted"
-        seats = [f"WL{class_key}{i}" for i in range(1, passengers + 1)]
-        new_confirmed_remaining = confirmed_remaining
+        # ---------------- PNR ----------------
+        pnr = "PNR" + str(randint(1000000000, 9999999999))
 
-    # update inventory
-    if is_postgres():
+        created_at = datetime.now().isoformat(timespec="seconds")
 
+        # ---------------- INSERT BOOKING ----------------
         with connection.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE seat_inventory
-                SET confirmed_remaining = %s, updated_at = %s
-                WHERE train_id = %s AND journey_date = %s AND class_key = %s
-                """,
-                (
-                    new_confirmed_remaining,
-                    datetime.now().isoformat(timespec="seconds"),
-                    train["id"],
-                    journey_date,
-                    class_key,
-                ),
-            )
-            cur.execute(
-                """
+            cur.execute("""
                 INSERT INTO bookings
-                (user_id, pnr, train_id, train_name, route, journey_date, class_key, passengers, seats, amount, status, created_at)
+                (user_id, pnr, train_id, train_name, route,
+                 journey_date, class_key, passengers, seats,
+                 amount, status, created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s)
-                """,
-                (
-                    user["id"],
-                    pnr,
-                    train["id"],
-                    train["name"],
-                    f"{train['from_name']} to {train['to_name']}",
-                    journey_date,
-                    class_key,
-                    json.dumps(names),
-                    json.dumps(seats),
-                    fare["total"],
-                    status,
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-    else:
-        connection.execute(
-            """
-            UPDATE seat_inventory
-            SET confirmed_remaining = ?, updated_at = ?
-            WHERE train_id = ? AND journey_date = ? AND class_key = ?
-            """,
-            (
-                new_confirmed_remaining,
-                datetime.now().isoformat(timespec="seconds"),
-                train["id"],
-                journey_date,
-                class_key,
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO bookings
-            (user_id, pnr, train_id, train_name, route, journey_date, class_key, passengers, seats, amount, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
+                RETURNING id
+            """, (
                 user["id"],
                 pnr,
                 train["id"],
@@ -833,34 +786,69 @@ def book(train_id, class_key):
                 json.dumps(seats),
                 fare["total"],
                 status,
-                datetime.now().isoformat(timespec="seconds"),
-            ),
+                created_at
+            ))
+
+            booking_row = cur.fetchone()
+            booking_id = booking_row[0] if booking_row else None
+
+        # ---------------- UPDATE INVENTORY ----------------
+        with connection.cursor() as cur:
+            cur.execute("""
+                UPDATE seat_inventory
+                SET confirmed_remaining=%s, updated_at=%s
+                WHERE train_id=%s AND journey_date=%s AND class_key=%s
+            """, (
+                new_confirmed,
+                created_at,
+                train_id,
+                journey_date,
+                class_key
+            ))
+
+        connection.commit()
+
+        # ---------------- SNS SAFE PUBLISH ----------------
+        try:
+            if booking_id:
+                sns.publish(
+                    TopicArn=TOPIC_ARN,
+                    Message=json.dumps({
+                        "booking_id": booking_id,
+                        "pnr": pnr,
+                        "email": user["email"],
+                        "train": train["name"],
+                        "status": status,
+                        "amount": fare["total"]
+                    })
+                )
+                print("SNS sent successfully")
+
+        except Exception as e:
+            print("SNS failed:", str(e))
+
+        # ---------------- RESPONSE ----------------
+        return render_template(
+            "ticket.html",
+            train=train,
+            booking={
+                "pnr": pnr,
+                "train": train["name"],
+                "route": f"{train['from_name']} to {train['to_name']}",
+                "date": journey_date,
+                "class": class_key,
+                "passengers": names,
+                "amount": fare["total"],
+                "status": status,
+                "seats": seats,
+            },
+            class_name=CLASS_NAMES[class_key],
+            fare=fare,
+            user=user,
         )
 
-    connection.commit()
-    connection.close()
-
-    booking = {
-        "pnr": pnr,
-        "train": train["name"],
-        "route": f"{train['from_name']} to {train['to_name']}",
-        "date": journey_date,
-        "class": class_key,
-        "passengers": names,
-        "amount": fare["total"],
-        "status": status,
-        "seats": seats,
-    }
-
-    return render_template(
-        "ticket.html",
-        train=train,
-        booking=booking,
-        class_name=CLASS_NAMES[class_key],
-        fare=fare,
-        user=user,
-    )
-
+    finally:
+        connection.close()
 
 def price_for(train, class_key, passengers):
     fare = train["classes"][class_key][0]
