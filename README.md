@@ -87,8 +87,13 @@ It is designed to:
 # 🏗 AWS Architecture
 
 ```
+## 🏗 AWS Architecture
+
+<p align="center">
+  
 <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/9ee1dc0a-7ccd-453e-8f45-a5c8df26cf01" />
 
+</p>
 ```
 
 ---
