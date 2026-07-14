@@ -8,10 +8,8 @@ from pathlib import Path
 from random import randint
 import time
 
-
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
-
 
 app = Flask(__name__)
 app.secret_key = "railconnect-demo-secret"
@@ -183,7 +181,7 @@ def waitlist_capacity_for_confirmed(confirmed):
 def lock_seat(train_id, journey_date, class_key, seat, user_id):
 
     seat_id = f"{train_id}#{journey_date}#{class_key}#{seat}"
-    expiry_time = int(time.time()) + 120
+    expiry_time = int(time.time()) + 60
 
     try:
         response = table.put_item(
@@ -395,7 +393,7 @@ def ensure_schema_and_admin_seed(connection):
 def db():
     import psycopg2
     return psycopg2.connect(
-        host="database-1.cluster-cvkcs4q28uf5.ap-south-1.rds.amazonaws.com",
+        host="postgres.cvkcs4q28uf5.ap-south-1.rds.amazonaws.com",
         port=5432,
         database="postgres",
         user="postgres",
@@ -1313,7 +1311,20 @@ def pnr_lookup(pnr):
 
 
 
+def _startup_init_db_once():
+    """Ensure DB schema + demo admin seed exists even when running under gunicorn/Procfile."""
+    try:
+        # If DB credentials are not available, let app still start; errors will surface on first DB access.
+        init_db()
+    except Exception as e:
+        print("init_db failed (startup):", str(e))
+
+
+# Always attempt startup init (covers Procfile/gunicorn).
+_startup_init_db_once()
+
+
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=5000)
+
 

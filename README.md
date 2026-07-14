@@ -15,19 +15,22 @@ A cloud-native Railway Reservation System built using AWS services to simulate a
 
 ---
 
-# 📖 Table of Contents
+## 🖼 Demo Screens
 
-- Project Overview
-- Features
-- AWS Architecture
-- Technology Stack
-- Booking Workflow
-- Auto Scaling Strategy
-- AWS Services Used
-- Monitoring & Logging
-- Project Structure
-- Future Enhancements
-- Author
+<table>
+  <tr>
+    <td align="center"><img src="projimg/home_page.png" width="380" alt="Home Page"></td>
+    <td align="center"><img src="projimg/login.png" width="380" alt="Login"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="projimg/Register.png" width="380" alt="Register"></td>
+    <td align="center"><img src="projimg/booking.png" width="380" alt="Booking"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="projimg/my_booking.png" width="380" alt="My Booking"></td>
+    <td align="center"><img src="projimg/booked_ticket.png" width="380" alt="Booked Ticket"></td>
+  </tr>
+</table>
 
 ---
 
@@ -60,8 +63,6 @@ It is designed to:
 - PDF Ticket Download
 - Email Notification
 
----
-
 ## ☁️ Cloud Features
 
 - High Availability Architecture
@@ -86,21 +87,36 @@ It is designed to:
 
 # 🏗 AWS Architecture
 
-```
-## 🏗 AWS Architecture
-
 <p align="center">
-  
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/9ee1dc0a-7ccd-453e-8f45-a5c8df26cf01" />
-
+  <img src="awsimg/arch.jpg" width="1100" alt="AWS Architecture Diagram">
 </p>
-```
+
+### Key AWS service components
+
+<table>
+  <tr>
+    <td align="center"><img src="awsimg/route53.png" width="160" alt="Route 53"></td>
+    <td align="center"><img src="awsimg/auto-scaling.png" width="160" alt="Auto Scaling"></td>
+    <td align="center"><img src="awsimg/schedule-autoscaling.png" width="160" alt="Scheduled Auto Scaling"></td>
+    <td align="center"><img src="awsimg/WAF.jpeg" width="160" alt="AWS WAF"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="awsimg/lambda.png" width="160" alt="AWS Lambda"></td>
+    <td align="center"><img src="awsimg/sns.png" width="160" alt="Amazon SNS"></td>
+    <td align="center"><img src="awsimg/RDS.png" width="160" alt="Amazon RDS (PostgreSQL)"></td>
+    <td align="center"><img src="awsimg/dynamoDB.png" width="160" alt="Amazon DynamoDB"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="awsimg/s3-bucket.jpeg" width="160" alt="Amazon S3"></td>
+    <td align="center"><img src="awsimg/arch.jpg" width="160" alt="Architecture (reference)"></td>
+  </tr>
+</table>
 
 ---
 
 # 🔄 End-to-End Booking Workflow
 
-```
+```text
 User Login
       │
       ▼
@@ -135,7 +151,7 @@ Send Email using SES
 
 ---
 
-# ⚡ Auto Scaling Strategy
+# ⚡ Auto Scaling Strategy (Tatkal Simulation)
 
 | Time | Action | EC2 Instances |
 |------|--------|--------------:|
@@ -143,7 +159,7 @@ Send Email using SES
 | 10:50 AM | Scale Out | 10 |
 | After 11:15 AM | Scale In | 2 |
 
-This simulates the **Tatkal booking rush**, ensuring that the application automatically scales during peak demand.
+This simulates the **Tatkal booking rush**, ensuring the application automatically scales during peak demand.
 
 ---
 
@@ -174,8 +190,6 @@ This simulates the **Tatkal booking rush**, ensuring that the application automa
 - Amazon Route 53
 - Amazon CloudFront
 - AWS WAF
-- Amazon DynamoDB
-- Amazon RDS PostgreSQL
 - Amazon SNS
 - AWS Lambda
 - Amazon S3
@@ -183,28 +197,6 @@ This simulates the **Tatkal booking rush**, ensuring that the application automa
 - Amazon CloudWatch
 - AWS CloudTrail
 - AWS X-Ray
-
----
-
-# ☁️ AWS Services Used
-
-| Service | Purpose |
-|----------|---------|
-| Amazon EC2 | Hosts Flask Application |
-| Auto Scaling | Handles traffic spikes |
-| ALB | Load Distribution |
-| Route 53 | DNS Management |
-| CloudFront | Content Delivery |
-| AWS WAF | Web Application Firewall |
-| DynamoDB | Temporary Seat Locking (TTL) |
-| Amazon RDS | Booking Database |
-| Amazon SNS | Publish Booking Events |
-| AWS Lambda | Ticket PDF Generation |
-| Amazon S3 | Store Ticket PDFs |
-| Amazon SES | Send Email to Users |
-| CloudWatch | Monitoring & Alarms |
-| CloudTrail | API Auditing |
-| AWS X-Ray | Distributed Tracing |
 
 ---
 
@@ -220,16 +212,12 @@ This simulates the **Tatkal booking rush**, ensuring that the application automa
 - Dashboards
 - CloudWatch Alarms
 
----
-
 ### AWS CloudTrail
 
 - API Activity Logs
 - Resource Changes
 - IAM Activity
 - Security Auditing
-
----
 
 ### AWS X-Ray
 
@@ -243,25 +231,51 @@ This simulates the **Tatkal booking rush**, ensuring that the application automa
 
 # 📂 Project Structure
 
-```
-railway-reservation/
+```text
+railconnect_flask/
 │
 ├── app.py
+├── lambda_function.py
+├── Procfile
 ├── requirements.txt
+├── railconnect.db
+├── schema-postgres.sql
 ├── README.md
 │
-├── templates/
-├── static/
+├── awsimg/              # AWS architecture & service images used in this README
+│   ├── arch.jpg
+│   ├── auto-scaling.png
+│   ├── dynamoDB.png
+│   ├── lambda.png
+│   ├── RDS.png
+│   ├── route53.png
+│   ├── s3-bucket.jpeg
+│   ├── schedule-autoscaling.png
+│   ├── sns.png
+│   └── WAF.jpeg
 │
-├── screenshots/
-│   ├── home.png
+├── projimg/            # App UI screenshots used in this README
+│   ├── home_page.png
 │   ├── login.png
+│   ├── Register.png
 │   ├── booking.png
-│   ├── dashboard.png
-│   ├── ticket.png
-│   └── architecture.png
+│   ├── my_booking.png
+│   └── booked_ticket.png
 │
-└── docs/
+├── static/
+│   ├── app.js
+│   ├── payment-demo.js
+│   ├── payment-modal-ui.js
+│   └── styles.css
+│
+└── templates/
+    ├── base.html
+    ├── auth.html
+    ├── admin.html
+    ├── index.html
+    ├── book.html
+    ├── my_bookings.html
+    └── ticket.html
 ```
 
 ---
@@ -277,20 +291,6 @@ railway-reservation/
 
 ---
 
-# 📷 Screenshots
-
-> Add project screenshots here.
-
-- Home Page
-- Login Page
-- Dashboard
-- Booking Page
-- Ticket PDF
-- Email Notification
-- AWS Architecture Diagram
-
----
-
 # 👨‍💻 Author
 
 ## Om Jadhav
@@ -298,7 +298,7 @@ railway-reservation/
 **AWS Cloud & DevOps Enthusiast**
 
 - GitHub: https://github.com/omcloud4
-- LinkedIn: *(Add your LinkedIn Profile)*
+- LinkedIn: https://www.linkedin.com/in/om-jadhav-55477a252/
 
 ---
 
@@ -307,3 +307,4 @@ railway-reservation/
 ### ⭐ If you found this project useful, consider giving it a Star.
 
 </div>
+
