@@ -87,31 +87,8 @@ It is designed to:
 # 🏗 AWS Architecture
 
 ```
-Users
-   │
-Route53
-   │
-CloudFront
-   │
-AWS WAF
-   │
-Application Load Balancer
-   │
-Auto Scaling Group (EC2 Flask)
-   │
-   ├────────► DynamoDB (Seat Lock TTL)
-   │
-   ├────────► Amazon RDS (Booking Database)
-   │
-   └────────► Amazon SNS
-                  │
-                  ▼
-             AWS Lambda
-             (Generate PDF)
-              │        │
-              ▼        ▼
-         Amazon S3   Amazon SES
-       (Ticket PDF) (Email Ticket)
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/9ee1dc0a-7ccd-453e-8f45-a5c8df26cf01" />
+
 ```
 
 ---
